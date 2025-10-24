@@ -14,12 +14,10 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
    ```bash
    git clone <repository>
    cd file-storage-api
-   ```
 
 2. **Start services**:
     ```bash
     docker-compose up --build
-    ```
 
 3. **Services will be available at**:
 
@@ -32,28 +30,24 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
 1. Authentication
     Login:
 
-        ```bash
         curl -X POST http://localhost:5000/login \
         -H "Content-Type: application/json" \
         -d '{"username": "admin", "password": "admin123"}'
         
     Response:
 
-        json
         {"token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."}
         
 
 2. File Operations
     List files:
 
-        ```bash
         curl -X GET "http://localhost:5000/list?path=/" \
         -H "Authorization: Bearer YOUR_TOKEN"
         
 
     Upload file:
 
-        ```bash
         curl -X PUT "http://localhost:5000/put?path=/docs&filename=test.txt" \
         -H "Authorization: Bearer YOUR_TOKEN" \
         -d "This is file content"
@@ -61,7 +55,6 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
 
     Download file:
 
-        ```bash
         curl -X GET "http://localhost:5000/get?path=/docs&filename=test.txt" \
         -H "Authorization: Bearer YOUR_TOKEN" \
         --output downloaded.txt
@@ -82,22 +75,26 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
         id, path, filename, content, user_id, created_at, updated_at
 
 ## Third-party Libraries
-    **Storage Service**:
-        Flask (2.3.3)       :   Lightweight web framework for API
-        Psycopg2 (2.9.7)    :   PostgreSQL adapter for Python
-        Requests (2.31.0)   :   HTTP client for auth service communication
-        PyJWT (2.8.0)       :   JWT token handling
 
-    **Auth Service**:
+    Storage Service:
+         Flask (2.3.3)       :   Lightweight web framework for API
+         Psycopg2 (2.9.7)    :   PostgreSQL adapter for Python
+         Requests (2.31.0)   :   HTTP client for auth service communication
+         PyJWT (2.8.0)       :   JWT token handling
+
+    Auth Service:
         Flask (2.3.3)   :   Web framework
         Psycopg2 (2.9.7):   Database operations
         PyJWT (2.8.0)   :   Token generation/validation
 
-    ## Justification
+
+## Justification
+
         Flask       : Simple, lightweight, perfect for microservices
         Psycopg2    : Standard, well-supported PostgreSQL driver
         Requests    : Simple HTTP client for service communication
         PyJWT       : Industry standard for JWT tokens
+
 
 ## Resources Used
     Flask Documentation: https://flask.palletsprojects.com/
@@ -109,7 +106,6 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
     JWT.io Introduction: https://jwt.io/introduction/
 
     PostgreSQL Documentation: https://www.postgresql.org/docs/
-
 
 ## Development Time
     Approximately 6-8 hours including:
