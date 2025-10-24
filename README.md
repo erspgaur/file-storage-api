@@ -36,12 +36,12 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
         curl -X POST http://localhost:5000/login \
         -H "Content-Type: application/json" \
         -d '{"username": "admin", "password": "admin123"}'
-        ```
+        
     Response:
 
-        ```json
+        json
         {"token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."}
-        ```
+        
 
 2. File Operations
     List files:
@@ -49,7 +49,7 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
         ```bash
         curl -X GET "http://localhost:5000/list?path=/" \
         -H "Authorization: Bearer YOUR_TOKEN"
-        ```
+        
 
     Upload file:
 
@@ -57,7 +57,7 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
         curl -X PUT "http://localhost:5000/put?path=/docs&filename=test.txt" \
         -H "Authorization: Bearer YOUR_TOKEN" \
         -d "This is file content"
-        ```
+      
 
     Download file:
 
@@ -65,7 +65,7 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
         curl -X GET "http://localhost:5000/get?path=/docs&filename=test.txt" \
         -H "Authorization: Bearer YOUR_TOKEN" \
         --output downloaded.txt
-        ```
+
 
 ## Default Users:
     admin / admin123 - Full access to all paths
