@@ -19,6 +19,10 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
     ```bash
     docker-compose up --build -d
 
+    Or (if using newer version of docker compose): 
+
+    docker compose up --build -d
+
 # Check status [Optional]
     docker-compose ps
 
