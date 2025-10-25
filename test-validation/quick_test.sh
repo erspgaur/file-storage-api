@@ -2,7 +2,24 @@
 echo "Quick Test - File Storage API"
 echo "============================="
 
-# Wait for services
+# Detect docker compose and check if services are running
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker compose"
+else
+    echo "Error: Neither 'docker-compose' nor 'docker compose' commands found"
+    exit 1
+fi
+
+# Check if services are running
+if ! $DOCKER_COMPOSE_CMD ps | grep -q "Up"; then
+    echo "Services are not running. Starting them..."
+    $DOCKER_COMPOSE_CMD up -d
+    sleep 10
+fi
+
+# Wait for services to start
 echo "Waiting for services..."
 sleep 10
 

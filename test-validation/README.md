@@ -1,5 +1,21 @@
 ## Usage Instructions
 
+## Docker Compose Compatibility
+
+This validation test feature supports both legacy `docker-compose` and modern `docker compose` commands. The system will automatically detect which command is available on your system.
+
+### Legacy docker-compose (v1)
+```bash
+docker-compose up -d
+docker-compose down
+docker-compose logs
+
+### Legacy Docker Compose (v2)
+```bash
+docker compose up -d
+docker compose down
+docker compose logs
+
 ## Make scripts executable:
 
         ```bash

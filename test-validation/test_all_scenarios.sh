@@ -17,9 +17,36 @@ REGULAR_PASS="user123"
 ADMIN_TOKEN=""
 USER_TOKEN=""
 
+# Docker compose command detection
+DOCKER_COMPOSE_CMD=""
+
 # Counters
 PASSED=0
 FAILED=0
+
+# Function to detect and set docker compose command
+detect_docker_compose() {
+    if command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker-compose"
+        print_info "Using docker-compose command"
+    elif docker compose version &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker compose"
+        print_info "Using docker compose command"
+    else
+        print_warning "Neither 'docker-compose' nor 'docker compose' commands found"
+        return 1
+    fi
+    return 0
+}
+
+# Function to run docker compose commands
+docker_compose() {
+    if [ -z "$DOCKER_COMPOSE_CMD" ]; then
+        detect_docker_compose || return 1
+    fi
+    # Split the command string into array and execute
+    eval $DOCKER_COMPOSE_CMD "$@"
+}
 
 print_result() {
     if [ $1 -eq 0 ]; then
@@ -41,6 +68,11 @@ print_warning() {
 
 wait_for_services() {
     print_info "Waiting for services to be ready..."
+    
+    # Detect docker compose command first
+    if ! detect_docker_compose; then
+        print_warning "Docker compose not available, trying direct HTTP checks..."
+    fi
     
     # Wait for storage service
     for i in {1..30}; do
@@ -203,7 +235,11 @@ test_logging() {
     
     # Check storage service logs
     print_info "Checking storage service logs..."
-    storage_logs=$(docker-compose logs storage --tail=50 2>/dev/null)
+    if command -v docker-compose &> /dev/null || docker compose version &> /dev/null; then
+        storage_logs=$(docker_compose logs storage --tail=50 2>/dev/null)
+    else
+        storage_logs=$(docker logs file-storage-api-storage-1 --tail=50 2>/dev/null)
+    fi
     
     if [ ! -z "$storage_logs" ] && [ $(echo "$storage_logs" | wc -l) -gt 5 ]; then
         print_result 0 "Storage service is logging to stdout"
@@ -214,12 +250,20 @@ test_logging() {
         print_warning "No storage logs found"
         # Debug: check if container is running
         print_info "Checking storage container status..."
-        docker-compose ps storage
+        if command -v docker-compose &> /dev/null || docker compose version &> /dev/null; then
+            docker_compose ps storage
+        else
+            docker ps | grep storage
+        fi
     fi
     
     # Check auth service logs
     print_info "Checking auth service logs..."
-    auth_logs=$(docker-compose logs auth --tail=50 2>/dev/null)
+    if command -v docker-compose &> /dev/null || docker compose version &> /dev/null; then
+        auth_logs=$(docker_compose logs auth --tail=50 2>/dev/null)
+    else
+        auth_logs=$(docker logs file-storage-api-auth-1 --tail=50 2>/dev/null)
+    fi
     
     if [ ! -z "$auth_logs" ] && [ $(echo "$auth_logs" | wc -l) -gt 5 ]; then
         print_result 0 "Auth service is logging to stdout"
@@ -230,7 +274,11 @@ test_logging() {
         print_warning "No auth logs found"
         # Debug: check if container is running
         print_info "Checking auth container status..."
-        docker-compose ps auth
+        if command -v docker-compose &> /dev/null || docker compose version &> /dev/null; then
+            docker_compose ps auth
+        else
+            docker ps | grep auth
+        fi
     fi
 }
 
@@ -248,13 +296,41 @@ summary() {
     fi
 }
 
+check_services_running() {
+    print_info "Checking if services are running..."
+    
+    if command -v docker-compose &> /dev/null || docker compose version &> /dev/null; then
+        if docker_compose ps | grep -q "Up"; then
+            return 0
+        else
+            print_warning "Docker containers don't appear to be running."
+            echo "Start them with: docker-compose up -d  OR  docker compose up -d"
+            return 1
+        fi
+    else
+        # Fallback to direct docker check
+        if docker ps | grep -q "file-storage-api"; then
+            return 0
+        else
+            print_warning "Docker containers don't appear to be running."
+            echo "Start them with: docker-compose up -d  OR  docker compose up -d"
+            return 1
+        fi
+    fi
+}
+
 main() {
     echo "File Storage API Test Suite"
     echo "==========================="
     
     # Check if services are running
+    if ! check_services_running; then
+        exit 1
+    fi
+    
+    # Check if services are ready
     if ! wait_for_services; then
-        echo "Please start services with: docker-compose up -d"
+        echo "Please start services with: docker-compose up -d  OR  docker compose up -d"
         exit 1
     fi
     
