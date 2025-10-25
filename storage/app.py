@@ -10,16 +10,33 @@ from models import StorageDB
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),  # Combined log to stdout
-        logging.StreamHandler(sys.stderr)   # Error log to stderr
-    ]
-)
+# Setup proper logging
 logger = logging.getLogger('storage_service')
+logger.setLevel(logging.INFO)
+
+# Create formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Stdout handler for combined logs
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.setLevel(logging.INFO)
+stdout_handler.setFormatter(formatter)
+stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
+
+# Stderr handler for errors
+stderr_handler = logging.StreamHandler(sys.stderr)
+stderr_handler.setLevel(logging.WARNING)
+stderr_handler.setFormatter(formatter)
+
+# Add handlers to logger
+logger.addHandler(stdout_handler)
+logger.addHandler(stderr_handler)
+
+# Also configure Flask's logger
+app.logger.handlers = []
+app.logger.addHandler(stdout_handler)
+app.logger.addHandler(stderr_handler)
+app.logger.setLevel(logging.INFO)
 
 # Configuration
 AUTH_SERVICE_URL = os.environ.get('AUTH_SERVICE_URL', 'http://auth:5001')
@@ -28,7 +45,6 @@ db = None
 def get_user_id_from_token(token):
     """Extract user ID from token"""
     try:
-        # First try to decode the token
         payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
         return payload.get('user_id')
     except jwt.InvalidTokenError:
@@ -46,6 +62,7 @@ def check_auth(token, path, operation):
             },
             timeout=5
         )
+        logger.info(f"Auth check for path {path}, operation {operation}: {response.status_code}")
         return response.status_code == 200 and response.json().get('authorized', False)
     except requests.RequestException as e:
         logger.error(f"Auth service error: {str(e)}")
@@ -57,6 +74,7 @@ def login():
     try:
         data = request.get_json()
         if not data or 'username' not in data or 'password' not in data:
+            logger.warning("Login attempt missing username or password")
             return jsonify({'error': 'Username and password required'}), 400
         
         response = requests.post(
@@ -65,7 +83,7 @@ def login():
             timeout=5
         )
         
-        # Forward the response from auth service
+        logger.info(f"Login attempt for user {data.get('username')}: {response.status_code}")
         return jsonify(response.json()), response.status_code
         
     except requests.RequestException as e:
@@ -79,20 +97,27 @@ def list_files():
     path = request.args.get('path', '')
     
     if not token:
+        logger.warning("List files attempt without token")
         return jsonify({'error': 'Bearer token required'}), 401
     
     if not path:
+        logger.warning("List files attempt without path")
         return jsonify({'error': 'Path parameter required'}), 400
     
     user_id = get_user_id_from_token(token)
     if not user_id:
+        logger.warning(f"List files attempt with invalid token for path {path}")
         return jsonify({'error': 'Invalid token'}), 401
     
     if not check_auth(token, path, 'read'):
+        logger.warning(f"User {user_id} denied read access to path {path}")
         return jsonify({'error': 'Access denied'}), 403
     
-    files = db.list_files(path, user_id)
-    logger.info(f"User {user_id} listed files in {path}")
+    files_data = db.list_files(path)
+    # Only return filenames, not user info
+    files = [file_data['filename'] for file_data in files_data]
+    
+    logger.info(f"User {user_id} listed {len(files)} files in {path}")
     return jsonify({'path': path, 'files': files})
 
 @app.route('/get', methods=['GET'])
@@ -103,25 +128,30 @@ def get_file():
     filename = request.args.get('filename', '')
     
     if not token:
+        logger.warning("Get file attempt without token")
         return jsonify({'error': 'Bearer token required'}), 401
     
     if not path or not filename:
+        logger.warning("Get file attempt missing path or filename")
         return jsonify({'error': 'Path and filename parameters required'}), 400
     
     user_id = get_user_id_from_token(token)
     if not user_id:
+        logger.warning(f"Get file attempt with invalid token for {path}/{filename}")
         return jsonify({'error': 'Invalid token'}), 401
     
     if not check_auth(token, path, 'read'):
+        logger.warning(f"User {user_id} denied read access to {path}/{filename}")
         return jsonify({'error': 'Access denied'}), 403
     
-    content = db.get_file(path, filename, user_id)
-    if content is None:
+    file_data = db.get_file(path, filename)
+    if file_data is None:
+        logger.info(f"File not found: {path}/{filename}")
         return jsonify({'error': 'File not found'}), 404
     
     logger.info(f"User {user_id} retrieved file {path}/{filename}")
     return send_file(
-        BytesIO(content),
+        BytesIO(file_data['content']),
         as_attachment=True,
         download_name=filename
     )
@@ -134,25 +164,35 @@ def put_file():
     filename = request.args.get('filename', '')
     
     if not token:
+        logger.warning("Put file attempt without token")
         return jsonify({'error': 'Bearer token required'}), 401
     
     if not path or not filename:
+        logger.warning("Put file attempt missing path or filename")
         return jsonify({'error': 'Path and filename parameters required'}), 400
     
     user_id = get_user_id_from_token(token)
     if not user_id:
+        logger.warning(f"Put file attempt with invalid token for {path}/{filename}")
         return jsonify({'error': 'Invalid token'}), 401
     
     if not check_auth(token, path, 'write'):
+        logger.warning(f"User {user_id} denied write access to {path}/{filename}")
         return jsonify({'error': 'Access denied'}), 403
     
     content = request.get_data()
     
     if db.put_file(path, filename, content, user_id):
-        logger.info(f"User {user_id} stored file {path}/{filename}")
+        logger.info(f"User {user_id} stored file {path}/{filename} ({len(content)} bytes)")
         return jsonify({'message': 'File stored successfully'}), 200
     else:
+        logger.error(f"User {user_id} failed to store file {path}/{filename}")
         return jsonify({'error': 'Failed to store file'}), 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for testing"""
+    return jsonify({'status': 'healthy'}), 200
 
 if __name__ == '__main__':
     dsn = os.environ.get('DATABASE_DSN', 'postgresql://postgres:password@db:5432/file_storage')

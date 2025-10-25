@@ -278,15 +278,15 @@ test_file_operations() {
         print_result 1 "Admin should be able to download uploaded file"
     fi
     
-    # Test 7: Download file (user reading admin's file - should fail)
+    # Test 7: User downloading admin's file from root (should fail due to path permissions)
     print_info "Testing user downloading admin's file from root (should fail)..."
     response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/get?path=/&filename=admin_file.txt" \
         -H "Authorization: Bearer $USER_TOKEN")
     
     status_code=${response: -3}
-    [ $status_code -eq 403 ] && print_result 0 "User correctly cannot access admin's root files" || print_result 1 "User should not access admin's root files"
+    [ $status_code -eq 403 ] && print_result 0 "User correctly cannot access root files" || print_result 1 "User should not access root files"
     
-    # Test 8: Download public file (both users)
+    # Test 8: Admin downloading user's public file (should succeed)
     print_info "Testing admin downloading user's public file..."
     response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/get?path=/public&filename=user_public_file.txt" \
         -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -405,13 +405,14 @@ main() {
     echo "File Storage API Comprehensive Test Suite"
     echo "========================================="
     
-    # Check if docker-compose is running
-    if ! docker-compose ps | grep -q "Up"; then
-        print_warning "Docker containers don't appear to be running."
-        echo "Start them with: docker-compose up -d"
-        echo "Then run this test script again."
-        exit 1
-    fi
+    # # Check if docker-compose is running
+    # alias docker-compose='docker compose'
+    # if ! docker-compose ps | grep -q "Up"; then
+    #     print_warning "Docker containers don't appear to be running."
+    #     echo "Start them with: docker-compose up -d"
+    #     echo "Then run this test script again."
+    #     exit 1
+    # fi
     
     wait_for_services
     test_authentication
