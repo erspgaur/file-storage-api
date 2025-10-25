@@ -60,6 +60,7 @@ class AuthDB:
                     
                     exact_match = cur.fetchone()
                     if exact_match:
+                        self.logger.info(f"Exact permission match for user {user_id} on path {path}: {exact_match[permission_field]}")
                         return exact_match[permission_field]
                     
                     # If no exact match, check if user has permission for parent paths
@@ -84,9 +85,23 @@ class AuthDB:
                         
                         parent_match = cur.fetchone()
                         if parent_match:
+                            self.logger.info(f"Parent permission match for user {user_id} on parent path {parent_path}: {parent_match[permission_field]}")
                             return parent_match[permission_field]
                     
+                    # Check root permission as last resort
+                    cur.execute(f"""
+                        SELECT {permission_field} 
+                        FROM permissions 
+                        WHERE user_id = %s AND path = '/'
+                    """, (user_id,))
+                    
+                    root_match = cur.fetchone()
+                    if root_match:
+                        self.logger.info(f"Root permission match for user {user_id}: {root_match[permission_field]}")
+                        return root_match[permission_field]
+                    
                     # No permissions found
+                    self.logger.info(f"No permissions found for user {user_id} on path {path}")
                     return False
                     
         except Exception as e:

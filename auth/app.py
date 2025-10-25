@@ -96,7 +96,7 @@ def authorize():
         
         # Check permission
         authorized = db.check_permission(user_id, path, operation)
-        logger.info(f"Permission check result for user {user_id}: {authorized}")
+        logger.info(f"Final permission check result for user {user_id} on path {path}: {authorized}")
         
         if authorized:
             logger.info(f"Authorization granted for user {user_id} on {path} for {operation}")

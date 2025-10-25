@@ -134,22 +134,13 @@ def get_file():
         logger.warning(f"User {user_id} denied read access to {path}/{filename}")
         return jsonify({'error': 'Access denied'}), 403
     
-    # Additional security: Check if user owns the file or has explicit path permission
-    file_data = db.get_file(path, filename, user_id)
-    if file_data is None:
-        # File might exist but user doesn't own it - check if they have path permission
-        file_data = db.get_file(path, filename)
-        if file_data and file_data['user_id'] != user_id:
-            # User doesn't own the file and we need to double-check path permission
-            logger.warning(f"User {user_id} attempted to access file owned by {file_data['user_id']} at {path}/{filename}")
-            if not check_auth(token, path, 'read'):  # Double check path permission
-                return jsonify({'error': 'Access denied'}), 403
-    
+    # Get file data - don't restrict by ownership since we already checked path permissions
+    file_data = db.get_file(path, filename)
     if file_data is None:
         logger.info(f"File not found: {path}/{filename}")
         return jsonify({'error': 'File not found'}), 404
     
-    logger.info(f"User {user_id} retrieved file {path}/{filename}")
+    logger.info(f"User {user_id} retrieved file {path}/{filename} (owned by user {file_data['user_id']})")
     return send_file(
         BytesIO(file_data['content']),
         as_attachment=True,
