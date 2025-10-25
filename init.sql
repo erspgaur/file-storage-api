@@ -1,4 +1,4 @@
--- Switch to file_storage database (it's already created by environment variable)
+-- Switch to file_storage database
 \c file_storage;
 
 -- Users table for authentication
@@ -39,12 +39,12 @@ INSERT INTO users (username, password_hash) VALUES
 ('admin', 'pbkdf2:sha256:260000$TestHash$testhash123'), -- password: admin123
 ('user1', 'pbkdf2:sha256:260000$TestHash$testhash456'); -- password: user123
 
--- Insert permissions
+-- Insert permissions - FIXED: user1 should NOT have read access to root
 INSERT INTO permissions (user_id, path, can_read, can_write) VALUES
-(1, '/', TRUE, TRUE),
-(1, '/docs', TRUE, TRUE),
-(2, '/', TRUE, FALSE),
-(2, '/public', TRUE, TRUE);
+(1, '/', TRUE, TRUE),           -- admin: read/write everything
+(1, '/docs', TRUE, TRUE),       -- admin: read/write /docs
+(2, '/public', TRUE, TRUE),     -- user1: read/write only to /public
+(2, '/shared', TRUE, FALSE);    -- user1: read-only to /shared
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);

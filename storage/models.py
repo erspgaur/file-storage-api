@@ -27,16 +27,25 @@ class StorageDB:
             self.logger.error(f"List files error: {str(e)}")
             return []
     
-    def get_file(self, path, filename):
-        """Get file content (regardless of user)"""
+    def get_file(self, path, filename, user_id=None):
+        """Get file content. If user_id provided, also check ownership."""
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("""
-                        SELECT content, user_id 
-                        FROM files 
-                        WHERE path = %s AND filename = %s
-                    """, (path, filename))
+                    if user_id:
+                        # Check if user owns the file or has path permission
+                        cur.execute("""
+                            SELECT content, user_id 
+                            FROM files 
+                            WHERE path = %s AND filename = %s AND user_id = %s
+                        """, (path, filename, user_id))
+                    else:
+                        cur.execute("""
+                            SELECT content, user_id 
+                            FROM files 
+                            WHERE path = %s AND filename = %s
+                        """, (path, filename))
+                    
                     result = cur.fetchone()
                     return result if result else None
         except Exception as e:

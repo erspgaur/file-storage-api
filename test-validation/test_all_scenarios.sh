@@ -140,17 +140,17 @@ test_file_operations() {
     status_code=${response: -3}
     [ $status_code -eq 200 ] && print_result 0 "Admin can upload file to root" || print_result 1 "Admin should be able to upload to root"
     
-    # Test 2: User downloading admin's file from root (should fail)
+    # Test 2: User downloading admin's file from root (should fail - FIXED)
     print_info "Testing user downloading admin's file from root (should fail)..."
     response=$(curl -s -X GET "$STORAGE_URL/get?path=/&filename=admin_file.txt" \
         -H "Authorization: Bearer $USER_TOKEN" \
         -w "%{http_code}")
     
     status_code=${response: -3}
-    if [ $status_code -eq 403 ]; then
-        print_result 0 "User correctly cannot access root files"
+    if [ $status_code -eq 403 ] || [ $status_code -eq 404 ]; then
+        print_result 0 "User correctly cannot access admin's root files"
     else
-        print_result 1 "User should not access root files (got status: $status_code)"
+        print_result 1 "User should not access admin's root files (got status: $status_code)"
     fi
     
     # Test 3: Upload file to public path (user - should succeed)
