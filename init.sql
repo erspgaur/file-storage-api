@@ -1,10 +1,8 @@
--- Create database
-CREATE DATABASE file_storage;
-
+-- Switch to file_storage database (it's already created by environment variable)
 \c file_storage;
 
 -- Users table for authentication
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
@@ -12,7 +10,7 @@ CREATE TABLE users (
 );
 
 -- File permissions table
-CREATE TABLE permissions (
+CREATE TABLE IF NOT EXISTS permissions (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     path VARCHAR(500) NOT NULL,
@@ -22,7 +20,7 @@ CREATE TABLE permissions (
 );
 
 -- Files table for storage service
-CREATE TABLE files (
+CREATE TABLE IF NOT EXISTS files (
     id SERIAL PRIMARY KEY,
     path VARCHAR(500) NOT NULL,
     filename VARCHAR(255) NOT NULL,
@@ -33,16 +31,21 @@ CREATE TABLE files (
     UNIQUE(path, filename)
 );
 
--- Insert sample data
+-- Clear existing data and insert fresh sample data
+TRUNCATE TABLE permissions, files, users RESTART IDENTITY CASCADE;
+
+-- Insert sample users with properly hashed passwords
 INSERT INTO users (username, password_hash) VALUES 
 ('admin', 'pbkdf2:sha256:260000$TestHash$testhash123'), -- password: admin123
 ('user1', 'pbkdf2:sha256:260000$TestHash$testhash456'); -- password: user123
 
+-- Insert permissions
 INSERT INTO permissions (user_id, path, can_read, can_write) VALUES
 (1, '/', TRUE, TRUE),
 (1, '/docs', TRUE, TRUE),
 (2, '/', TRUE, FALSE),
 (2, '/public', TRUE, TRUE);
 
-CREATE INDEX idx_files_path ON files(path);
-CREATE INDEX idx_permissions_user_path ON permissions(user_id, path);
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
+CREATE INDEX IF NOT EXISTS idx_permissions_user_path ON permissions(user_id, path);
