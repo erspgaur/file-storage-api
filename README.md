@@ -19,12 +19,24 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
     ```bash
     docker-compose up --build -d
 
+# Check status [Optional]
+    docker-compose ps
+
+# View logs [Optional]
+    docker-compose logs -f
+
+# Stop services, if needed to remove docker containers with volume [Optional]
+    docker-compose down -v
+    
+    # For Rebuild and restart use:
+        docker-compose up --build -d
+
 3. **Services will be available at**:
 
         Storage API: http://localhost:5000
         Auth API: http://localhost:5001
         PostgreSQL: localhost:5432
-
+x
 ## API Usage
 
 1. Authentication
@@ -45,12 +57,15 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
         curl -X GET "http://localhost:5000/list?path=/" \
         -H "Authorization: Bearer YOUR_TOKEN"
         
+     replace YOUR_TOKEN that was received in the response above.
 
     Upload file:
 
         curl -X PUT "http://localhost:5000/put?path=/docs&filename=test.txt" \
         -H "Authorization: Bearer YOUR_TOKEN" \
-        -d "This is file content"
+        -d "This is file content entered by user - Sateshwar"
+        
+     replace YOUR_TOKEN that was received in the response above.
       
 
     Download file:
@@ -58,6 +73,8 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
         curl -X GET "http://localhost:5000/get?path=/docs&filename=test.txt" \
         -H "Authorization: Bearer YOUR_TOKEN" \
         --output downloaded.txt
+        
+     replace YOUR_TOKEN that was received in the response above.
 
 
 ## Default Users:
