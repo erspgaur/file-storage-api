@@ -352,30 +352,96 @@ test_logging() {
     echo
     echo "=== LOGGING TESTS ==="
     
-    print_info "Checking if services are writing logs..."
+    print_info "Testing service logging functionality..."
     
-    # Check storage service logs
-    storage_logs=$(docker-compose logs storage 2>/dev/null | wc -l)
-    if [ $storage_logs -gt 10 ]; then
+    # Generate some traffic to ensure logs are produced
+    print_info "Generating test traffic for logging verification..."
+    
+    # Test storage service logging
+    curl -s -X POST "$STORAGE_URL/login" \
+        -H "Content-Type: application/json" \
+        -d '{"username": "admin", "password": "admin123"}' > /dev/null 2>&1
+    
+    # Test auth service logging  
+    curl -s -X POST "$AUTH_URL/authenticate" \
+        -H "Content-Type: application/json" \
+        -d '{"username": "admin", "password": "admin123"}' > /dev/null 2>&1
+    
+    # Wait a moment for logs to be written
+    sleep 2
+    
+    # Check storage service logs with more detailed verification
+    print_info "Checking storage service logs..."
+    storage_logs=$(docker-compose logs storage --tail=20 2>/dev/null)
+    storage_log_count=$(echo "$storage_logs" | wc -l)
+    
+    if [ $storage_log_count -gt 5 ]; then
         print_result 0 "Storage service is logging to stdout"
+        echo "Storage log sample:"
+        echo "$storage_logs" | head -5 | while read line; do echo "  $line"; done
     else
         print_result 1 "Storage service should log to stdout"
+        print_warning "Storage logs: $storage_logs"
     fi
     
-    # Check auth service logs
-    auth_logs=$(docker-compose logs auth 2>/dev/null | wc -l)
-    if [ $auth_logs -gt 10 ]; then
+    # Check auth service logs with more detailed verification
+    print_info "Checking auth service logs..."
+    auth_logs=$(docker-compose logs auth --tail=20 2>/dev/null)
+    auth_log_count=$(echo "$auth_logs" | wc -l)
+    
+    if [ $auth_log_count -gt 5 ]; then
         print_result 0 "Auth service is logging to stdout"
+        echo "Auth log sample:"
+        echo "$auth_logs" | head -5 | while read line; do echo "  $line"; done
     else
         print_result 1 "Auth service should log to stdout"
+        print_warning "Auth logs: $auth_logs"
     fi
     
-    # Check for combined log format (approximate check)
-    combined_format=$(docker-compose logs storage 2>/dev/null | head -5 | grep -E "[0-9]{4}-[0-9]{2}-[0-9]{2}.*(GET|POST|PUT).*[0-9]{3}" | wc -l)
-    if [ $combined_format -gt 0 ]; then
-        print_result 0 "Logs appear to be in combined format"
+    # Check for combined log format more thoroughly
+    print_info "Verifying combined log format..."
+    
+    # Check storage logs for combined format pattern
+    storage_combined=$(echo "$storage_logs" | grep -E "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ - - \[.+\] \"(GET|POST|PUT|DELETE) .* HTTP\/[0-9]\.[0-9]\" [0-9]{3} [0-9]+" | wc -l)
+    auth_combined=$(echo "$auth_logs" | grep -E "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ - - \[.+\] \"(GET|POST|PUT|DELETE) .* HTTP\/[0-9]\.[0-9]\" [0-9]{3} [0-9]+" | wc -l)
+    
+    if [ $storage_combined -gt 0 ]; then
+        print_result 0 "Storage service using combined log format"
+        echo "  Found $storage_combined combined format entries"
     else
-        print_warning "Cannot verify combined log format automatically"
+        print_warning "Storage service may not be using exact combined format"
+        # Check for alternative formats
+        alt_format=$(echo "$storage_logs" | grep -E "\[.+\].*(GET|POST|PUT).*[0-9]{3}" | wc -l)
+        if [ $alt_format -gt 0 ]; then
+            echo "  Found $alt_format alternative format entries (still acceptable)"
+        fi
+    fi
+    
+    if [ $auth_combined -gt 0 ]; then
+        print_result 0 "Auth service using combined log format"
+        echo "  Found $auth_combined combined format entries"
+    else
+        print_warning "Auth service may not be using exact combined format"
+        # Check for alternative formats
+        alt_format=$(echo "$auth_logs" | grep -E "\[.+\].*(GET|POST|PUT).*[0-9]{3}" | wc -l)
+        if [ $alt_format -gt 0 ]; then
+            echo "  Found $alt_format alternative format entries (still acceptable)"
+        fi
+    fi
+    
+    # Test error logging by generating an error
+    print_info "Testing error logging..."
+    curl -s -X GET "$STORAGE_URL/list" \
+        -H "Authorization: Bearer invalid.token.here" > /dev/null 2>&1
+    
+    sleep 1
+    
+    # Check for error logs
+    error_logs=$(docker-compose logs storage --tail=10 2>/dev/null | grep -i "error\|warning" | wc -l)
+    if [ $error_logs -gt 0 ]; then
+        print_result 0 "Error logging is working"
+    else
+        print_warning "No error logs detected in recent entries"
     fi
 }
 
