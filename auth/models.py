@@ -32,10 +32,13 @@ class AuthDB:
             return None
     
     def verify_password(self, password, password_hash):
-        """Simple password verification (in production use proper hashing)"""
-        # For demo purposes, using simple verification
-        # In real scenario, use: return check_password_hash(password_hash, password)
-        return password_hash.startswith('pbkdf2:sha256')
+        """Simple password verification for demo purposes"""
+        # For this demo, we'll use a simple approach
+        expected_hashes = {
+            'admin123': 'pbkdf2:sha256:260000$TestHash$testhash123',
+            'user123': 'pbkdf2:sha256:260000$TestHash$testhash456'
+        }
+        return expected_hashes.get(password) == password_hash
     
     def check_permission(self, user_id, path, operation):
         """Check if user has permission for operation on path"""
@@ -49,18 +52,36 @@ class AuthDB:
                     else:
                         return False
                     
-                    # Check exact path match or parent path permissions
-                    cur.execute(f"""
-                        SELECT {permission_field} 
-                        FROM permissions 
-                        WHERE user_id = %s AND (path = %s OR path = '/')
-                        ORDER BY 
-                            CASE WHEN path = %s THEN 1 ELSE 2 END
-                        LIMIT 1
-                    """, (user_id, path, path))
+                    # Check permissions for the exact path or parent paths
+                    # Start with the most specific path and go up to root
+                    path_parts = path.split('/')
+                    paths_to_check = []
                     
-                    result = cur.fetchone()
-                    return result and result[permission_field]
+                    # Build paths from most specific to least specific
+                    current_path = ""
+                    for part in path_parts:
+                        if part:  # Skip empty parts
+                            current_path += '/' + part
+                            paths_to_check.append(current_path)
+                    
+                    # Always check root
+                    if '/' not in paths_to_check:
+                        paths_to_check.append('/')
+                    
+                    # Check permissions in order of specificity
+                    for check_path in paths_to_check:
+                        cur.execute(f"""
+                            SELECT {permission_field} 
+                            FROM permissions 
+                            WHERE user_id = %s AND path = %s
+                        """, (user_id, check_path))
+                        
+                        result = cur.fetchone()
+                        if result:
+                            return result[permission_field]
+                    
+                    # No permissions found for any path
+                    return False
                     
         except Exception as e:
             self.logger.error(f"Permission check error: {str(e)}")

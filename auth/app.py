@@ -3,108 +3,24 @@ import jwt
 import datetime
 import os
 import logging
-import sys
 from models import AuthDB
 
-class CombinedLogFormatter(logging.Formatter):
-    """Custom formatter for combined log format"""
-    def format(self, record):
-        # Get client IP (approximation in containerized environment)
-        client_ip = getattr(record, 'client_ip', '-')
-        
-        # Get timestamp
-        timestamp = self.formatTime(record, self.datefmt)
-        
-        # Get request line if available
-        request_line = getattr(record, 'request_line', '-')
-        
-        # Get status code if available
-        status_code = getattr(record, 'status_code', '-')
-        
-        # Get response size if available
-        response_size = getattr(record, 'response_size', '-')
-        
-        # Standard combined log format
-        if hasattr(record, 'request_line'):
-            return f'{client_ip} - - [{timestamp}] "{request_line}" {status_code} {response_size}'
-        else:
-            # For non-request logs, use standard format
-            return f'{timestamp} - {record.name} - {record.levelname} - {record.getMessage()}'
+# Configure logging first
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
 
-def setup_logging():
-    # Create logger
-    logger = logging.getLogger('auth_service')
-    logger.setLevel(logging.INFO)
-    
-    # Clear any existing handlers
-    logger.handlers.clear()
-    
-    # Create combined log formatter
-    formatter = CombinedLogFormatter(
-        fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%d/%b/%Y:%H:%M:%S %z'
-    )
-    
-    # Stdout handler for all logs (combined format)
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setLevel(logging.INFO)
-    stdout_handler.setFormatter(formatter)
-    
-    # Add handler to logger
-    logger.addHandler(stdout_handler)
-    
-    # Also configure Flask's logger
-    flask_logger = logging.getLogger('werkzeug')
-    flask_logger.setLevel(logging.INFO)
-    flask_logger.handlers.clear()
-    flask_logger.addHandler(stdout_handler)
-    
-    return logger
-
-# Initialize logger
-logger = setup_logging()
+# Get logger
+logger = logging.getLogger('auth_service')
 
 # Initialize database
 db = None
 tokens = {}  # In-memory token storage
-
-# Request logging middleware
-@app.before_request
-def log_request():
-    """Log incoming requests"""
-    request.environ['START_TIME'] = os.times().elapsed
-    client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR', '-'))
-    request.environ['CLIENT_IP'] = client_ip
-
-@app.after_request
-def log_response(response):
-    """Log responses in combined log format"""
-    # Get request information
-    client_ip = getattr(request, 'environ', {}).get('CLIENT_IP', '-')
-    method = request.method
-    path = request.path
-    http_version = request.environ.get('SERVER_PROTOCOL', 'HTTP/1.1')
-    status_code = response.status_code
-    response_size = response.content_length if response.content_length else 0
-    
-    # Build request line
-    request_line = f"{method} {path} {http_version}"
-    
-    # Log in combined format
-    logger.info(
-        "",
-        extra={
-            'client_ip': client_ip,
-            'request_line': request_line,
-            'status_code': status_code,
-            'response_size': response_size
-        }
-    )
-    
-    return response
 
 @app.route('/authenticate', methods=['POST'])
 def authenticate():
@@ -118,6 +34,7 @@ def authenticate():
         username = data['username']
         password = data['password']
         
+        logger.info(f"Authentication attempt for user: {username}")
         user = db.authenticate_user(username, password)
         if user:
             # Generate token
@@ -154,6 +71,8 @@ def authorize():
         path = data['path']
         operation = data['operation']
         
+        logger.info(f"Authorization check - Path: {path}, Operation: {operation}")
+        
         if operation not in ['read', 'write']:
             logger.warning(f"Invalid operation attempted: {operation}")
             return jsonify({'error': 'Operation must be read or write'}), 400
@@ -176,7 +95,10 @@ def authorize():
             user_id = tokens[token]
         
         # Check permission
-        if db.check_permission(user_id, path, operation):
+        authorized = db.check_permission(user_id, path, operation)
+        logger.info(f"Permission check result for user {user_id}: {authorized}")
+        
+        if authorized:
             logger.info(f"Authorization granted for user {user_id} on {path} for {operation}")
             return jsonify({'authorized': True}), 200
         else:
@@ -191,17 +113,6 @@ def authorize():
 def health_check():
     """Health check endpoint for testing"""
     return jsonify({'status': 'healthy'}), 200
-
-# Custom error handlers that log errors
-@app.errorhandler(404)
-def not_found_error(error):
-    logger.error(f"404 Not Found: {request.url}")
-    return jsonify({'error': 'Not found'}), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    logger.error(f"500 Internal Server Error: {str(error)}")
-    return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     dsn = os.environ.get('DATABASE_DSN', 'postgresql://postgres:password@db:5432/file_storage')

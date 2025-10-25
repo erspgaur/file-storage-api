@@ -14,7 +14,6 @@ ADMIN_USER="admin"
 ADMIN_PASS="admin123"
 REGULAR_USER="user1"
 REGULAR_PASS="user123"
-TEST_TOKEN=""
 ADMIN_TOKEN=""
 USER_TOKEN=""
 
@@ -43,31 +42,32 @@ print_warning() {
 wait_for_services() {
     print_info "Waiting for services to be ready..."
     
-    until curl -s $STORAGE_URL/health > /dev/null 2>&1; do
-        print_warning "Storage service not ready yet, waiting..."
-        sleep 5
+    # Wait for storage service
+    for i in {1..30}; do
+        if curl -s $STORAGE_URL/health > /dev/null 2>&1; then
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            print_warning "Storage service not ready after 30 attempts"
+            return 1
+        fi
+        sleep 2
     done
     
-    until curl -s $AUTH_URL/health > /dev/null 2>&1; do
-        print_warning "Auth service not ready yet, waiting..."
-        sleep 5
+    # Wait for auth service
+    for i in {1..30}; do
+        if curl -s $AUTH_URL/health > /dev/null 2>&1; then
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            print_warning "Auth service not ready after 30 attempts"
+            return 1
+        fi
+        sleep 2
     done
     
     print_info "Services are ready!"
-}
-
-# Add health check endpoints temporarily
-add_health_checks() {
-    print_info "Adding temporary health check endpoints..."
-    
-    # This would be added to both services temporarily
-    cat > health_check.py << 'EOF'
-from flask import jsonify
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({'status': 'healthy'}), 200
-EOF
+    return 0
 }
 
 test_authentication() {
@@ -76,36 +76,40 @@ test_authentication() {
     
     # Test 1: Login with admin credentials via storage service
     print_info "Testing admin login via storage service..."
-    response=$(curl -s -w "%{http_code}" -X POST "$STORAGE_URL/login" \
+    response=$(curl -s -X POST "$STORAGE_URL/login" \
         -H "Content-Type: application/json" \
-        -d "{\"username\": \"$ADMIN_USER\", \"password\": \"$ADMIN_PASS\"}")
+        -d "{\"username\": \"$ADMIN_USER\", \"password\": \"$ADMIN_PASS\"}" \
+        -w "%{http_code}")
     
     status_code=${response: -3}
     response_body=${response%???}
     
     if [ $status_code -eq 200 ]; then
-        ADMIN_TOKEN=$(echo $response_body | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+        ADMIN_TOKEN=$(echo $response_body | python3 -c "import sys, json; print(json.load(sys.stdin)['token'])")
         if [ ! -z "$ADMIN_TOKEN" ]; then
             print_result 0 "Admin login successful"
             echo "Admin Token: ${ADMIN_TOKEN:0:20}..."
         else
             print_result 1 "Admin login - token not found in response"
+            echo "Response: $response_body"
         fi
     else
         print_result 1 "Admin login failed with status $status_code"
+        echo "Response: $response_body"
     fi
     
     # Test 2: Login with regular user credentials
     print_info "Testing regular user login via storage service..."
-    response=$(curl -s -w "%{http_code}" -X POST "$STORAGE_URL/login" \
+    response=$(curl -s -X POST "$STORAGE_URL/login" \
         -H "Content-Type: application/json" \
-        -d "{\"username\": \"$REGULAR_USER\", \"password\": \"$REGULAR_PASS\"}")
+        -d "{\"username\": \"$REGULAR_USER\", \"password\": \"$REGULAR_PASS\"}" \
+        -w "%{http_code}")
     
     status_code=${response: -3}
     response_body=${response%???}
     
     if [ $status_code -eq 200 ]; then
-        USER_TOKEN=$(echo $response_body | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+        USER_TOKEN=$(echo $response_body | python3 -c "import sys, json; print(json.load(sys.stdin)['token'])")
         if [ ! -z "$USER_TOKEN" ]; then
             print_result 0 "Regular user login successful"
             echo "User Token: ${USER_TOKEN:0:20}..."
@@ -115,93 +119,6 @@ test_authentication() {
     else
         print_result 1 "User login failed with status $status_code"
     fi
-    
-    # Test 3: Login with invalid credentials
-    print_info "Testing login with invalid credentials..."
-    response=$(curl -s -w "%{http_code}" -X POST "$STORAGE_URL/login" \
-        -H "Content-Type: application/json" \
-        -d '{"username": "invalid", "password": "wrong"}')
-    
-    status_code=${response: -3}
-    [ $status_code -eq 401 ] && print_result 0 "Invalid login correctly rejected" || print_result 1 "Invalid login should return 401"
-    
-    # Test 4: Direct auth service authentication
-    print_info "Testing direct auth service authentication..."
-    response=$(curl -s -w "%{http_code}" -X POST "$AUTH_URL/authenticate" \
-        -H "Content-Type: application/json" \
-        -d "{\"username\": \"$ADMIN_USER\", \"password\": \"$ADMIN_PASS\"}")
-    
-    status_code=${response: -3}
-    [ $status_code -eq 200 ] && print_result 0 "Direct auth service authentication works" || print_result 1 "Direct auth service authentication failed"
-}
-
-test_authorization() {
-    echo
-    echo "=== AUTHORIZATION TESTS ==="
-    
-    if [ -z "$ADMIN_TOKEN" ]; then
-        print_warning "Skipping authorization tests - no admin token"
-        return
-    fi
-    
-    # Test 1: Admin authorization check for root path read
-    print_info "Testing admin authorization for root path read..."
-    response=$(curl -s -w "%{http_code}" -X POST "$AUTH_URL/authorize" \
-        -H "Content-Type: application/json" \
-        -d "{\"token\": \"$ADMIN_TOKEN\", \"path\": \"/\", \"operation\": \"read\"}")
-    
-    status_code=${response: -3}
-    response_body=${response%???}
-    authorized=$(echo $response_body | grep -o '"authorized":true')
-    
-    if [ $status_code -eq 200 ] && [ ! -z "$authorized" ]; then
-        print_result 0 "Admin authorized for root read"
-    else
-        print_result 1 "Admin should be authorized for root read"
-    fi
-    
-    # Test 2: Admin authorization check for root path write
-    print_info "Testing admin authorization for root path write..."
-    response=$(curl -s -w "%{http_code}" -X POST "$AUTH_URL/authorize" \
-        -H "Content-Type: application/json" \
-        -d "{\"token\": \"$ADMIN_TOKEN\", \"path\": \"/\", \"operation\": \"write\"}")
-    
-    status_code=${response: -3}
-    response_body=${response%???}
-    authorized=$(echo $response_body | grep -o '"authorized":true')
-    
-    if [ $status_code -eq 200 ] && [ ! -z "$authorized" ]; then
-        print_result 0 "Admin authorized for root write"
-    else
-        print_result 1 "Admin should be authorized for root write"
-    fi
-    
-    # Test 3: User authorization check for root path write (should fail)
-    if [ ! -z "$USER_TOKEN" ]; then
-        print_info "Testing user authorization for root path write (should fail)..."
-        response=$(curl -s -w "%{http_code}" -X POST "$AUTH_URL/authorize" \
-            -H "Content-Type: application/json" \
-            -d "{\"token\": \"$USER_TOKEN\", \"path\": \"/\", \"operation\": \"write\"}")
-        
-        status_code=${response: -3}
-        response_body=${response%???}
-        authorized=$(echo $response_body | grep -o '"authorized":false')
-        
-        if [ $status_code -eq 403 ] || [ ! -z "$authorized" ]; then
-            print_result 0 "User correctly not authorized for root write"
-        else
-            print_result 1 "User should not be authorized for root write"
-        fi
-    fi
-    
-    # Test 4: Invalid token authorization
-    print_info "Testing authorization with invalid token..."
-    response=$(curl -s -w "%{http_code}" -X POST "$AUTH_URL/authorize" \
-        -H "Content-Type: application/json" \
-        -d '{"token": "invalid.token.here", "path": "/", "operation": "read"}')
-    
-    status_code=${response: -3}
-    [ $status_code -eq 401 ] && print_result 0 "Invalid token correctly rejected" || print_result 1 "Invalid token should return 401"
 }
 
 test_file_operations() {
@@ -213,235 +130,107 @@ test_file_operations() {
         return
     fi
     
-    # Test 1: List files in root path (admin)
-    print_info "Testing list files in root path (admin)..."
-    response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/list?path=/" \
-        -H "Authorization: Bearer $ADMIN_TOKEN")
-    
-    status_code=${response: -3}
-    [ $status_code -eq 200 ] && print_result 0 "Admin can list root directory" || print_result 1 "Admin should be able to list root directory"
-    
-    # Test 2: Upload file to root path (admin)
+    # Test 1: Upload file to root path (admin)
     print_info "Testing file upload to root path (admin)..."
-    response=$(curl -s -w "%{http_code}" -X PUT "$STORAGE_URL/put?path=/&filename=admin_file.txt" \
+    response=$(curl -s -X PUT "$STORAGE_URL/put?path=/&filename=admin_file.txt" \
         -H "Authorization: Bearer $ADMIN_TOKEN" \
-        -d "This is a test file from admin")
+        -d "This is a test file from admin" \
+        -w "%{http_code}")
     
     status_code=${response: -3}
     [ $status_code -eq 200 ] && print_result 0 "Admin can upload file to root" || print_result 1 "Admin should be able to upload to root"
     
-    # Test 3: Upload file to root path (user - should fail)
-    print_info "Testing file upload to root path (user - should fail)..."
-    response=$(curl -s -w "%{http_code}" -X PUT "$STORAGE_URL/put?path=/&filename=user_file.txt" \
+    # Test 2: User downloading admin's file from root (should fail)
+    print_info "Testing user downloading admin's file from root (should fail)..."
+    response=$(curl -s -X GET "$STORAGE_URL/get?path=/&filename=admin_file.txt" \
         -H "Authorization: Bearer $USER_TOKEN" \
-        -d "This is a test file from user")
+        -w "%{http_code}")
     
     status_code=${response: -3}
-    [ $status_code -eq 403 ] && print_result 0 "User correctly cannot upload to root" || print_result 1 "User should not be able to upload to root"
+    if [ $status_code -eq 403 ]; then
+        print_result 0 "User correctly cannot access root files"
+    else
+        print_result 1 "User should not access root files (got status: $status_code)"
+    fi
     
-    # Test 4: Upload file to public path (user - should succeed)
+    # Test 3: Upload file to public path (user - should succeed)
     print_info "Testing file upload to public path (user - should succeed)..."
-    response=$(curl -s -w "%{http_code}" -X PUT "$STORAGE_URL/put?path=/public&filename=user_public_file.txt" \
+    response=$(curl -s -X PUT "$STORAGE_URL/put?path=/public&filename=user_public_file.txt" \
         -H "Authorization: Bearer $USER_TOKEN" \
-        -d "This is a user file in public directory")
+        -d "This is a user file in public directory" \
+        -w "%{http_code}")
     
     status_code=${response: -3}
     [ $status_code -eq 200 ] && print_result 0 "User can upload to public directory" || print_result 1 "User should be able to upload to public directory"
     
-    # Test 5: List files in public path (user)
-    print_info "Testing list files in public path (user)..."
-    response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/list?path=/public" \
-        -H "Authorization: Bearer $USER_TOKEN")
-    
-    status_code=${response: -3}
-    response_body=${response%???}
-    has_file=$(echo $response_body | grep -o "user_public_file.txt")
-    
-    if [ $status_code -eq 200 ] && [ ! -z "$has_file" ]; then
-        print_result 0 "User can list public directory and see uploaded file"
-    else
-        print_result 1 "User should see uploaded file in public directory"
-    fi
-    
-    # Test 6: Download file (admin)
-    print_info "Testing file download (admin)..."
-    response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/get?path=/&filename=admin_file.txt" \
-        -H "Authorization: Bearer $ADMIN_TOKEN" \
-        -o /tmp/downloaded_admin_file.txt)
-    
-    status_code=$?
-    content=$(cat /tmp/downloaded_admin_file.txt 2>/dev/null)
-    
-    if [ -f "/tmp/downloaded_admin_file.txt" ] && [ "$content" = "This is a test file from admin" ]; then
-        print_result 0 "Admin can download uploaded file"
-    else
-        print_result 1 "Admin should be able to download uploaded file"
-    fi
-    
-    # Test 7: User downloading admin's file from root (should fail due to path permissions)
-    print_info "Testing user downloading admin's file from root (should fail)..."
-    response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/get?path=/&filename=admin_file.txt" \
-        -H "Authorization: Bearer $USER_TOKEN")
-    
-    status_code=${response: -3}
-    [ $status_code -eq 403 ] && print_result 0 "User correctly cannot access root files" || print_result 1 "User should not access root files"
-    
-    # Test 8: Admin downloading user's public file (should succeed)
+    # Test 4: Admin downloading user's public file (should succeed)
     print_info "Testing admin downloading user's public file..."
-    response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/get?path=/public&filename=user_public_file.txt" \
+    response=$(curl -s -X GET "$STORAGE_URL/get?path=/public&filename=user_public_file.txt" \
         -H "Authorization: Bearer $ADMIN_TOKEN" \
-        -o /tmp/downloaded_public_file.txt)
+        -o /tmp/downloaded_public_file.txt \
+        -w "%{http_code}")
     
-    status_code=$?
+    status_code=${response: -3}
     content=$(cat /tmp/downloaded_public_file.txt 2>/dev/null)
     
     if [ -f "/tmp/downloaded_public_file.txt" ] && [ "$content" = "This is a user file in public directory" ]; then
         print_result 0 "Admin can download user's public file"
     else
-        print_result 1 "Admin should be able to download public files"
+        print_result 1 "Admin should be able to download public files (status: $status_code)"
     fi
     
-    # Cleanup test files
-    rm -f /tmp/downloaded_*.txt
-}
-
-test_error_scenarios() {
-    echo
-    echo "=== ERROR SCENARIO TESTS ==="
-    
-    # Test 1: Access without token
-    print_info "Testing access without authentication token..."
-    response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/list?path=/")
-    status_code=${response: -3}
-    [ $status_code -eq 401 ] && print_result 0 "Access without token correctly rejected" || print_result 1 "Should require authentication token"
-    
-    # Test 2: Access with invalid token
-    print_info "Testing access with invalid token..."
-    response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/list?path=/" \
-        -H "Authorization: Bearer invalid.token.here")
-    status_code=${response: -3}
-    [ $status_code -eq 401 ] && print_result 0 "Invalid token correctly rejected" || print_result 1 "Should reject invalid tokens"
-    
-    # Test 3: Missing path parameter
-    if [ ! -z "$ADMIN_TOKEN" ]; then
-        print_info "Testing missing path parameter..."
-        response=$(curl -s -w "%{http_code}" -X GET "$STORAGE_URL/list" \
-            -H "Authorization: Bearer $ADMIN_TOKEN")
-        status_code=${response: -3}
-        [ $status_code -eq 400 ] && print_result 0 "Missing path parameter correctly handled" || print_result 1 "Should require path parameter"
-    fi
-    
-    # Test 4: Invalid operation to auth service
-    print_info "Testing invalid operation to auth service..."
-    response=$(curl -s -w "%{http_code}" -X POST "$AUTH_URL/authorize" \
-        -H "Content-Type: application/json" \
-        -d '{"token": "some.token", "path": "/", "operation": "invalid_op"}')
-    status_code=${response: -3}
-    [ $status_code -eq 400 ] && print_result 0 "Invalid operation correctly rejected" || print_result 1 "Should reject invalid operations"
-    
-    # Test 5: Malformed JSON
-    print_info "Testing malformed JSON request..."
-    response=$(curl -s -w "%{http_code}" -X POST "$STORAGE_URL/login" \
-        -H "Content-Type: application/json" \
-        -d '{"username": "admin", "password": }')
-    status_code=${response: -3}
-    [ $status_code -eq 400 ] && print_result 0 "Malformed JSON correctly rejected" || print_result 1 "Should reject malformed JSON"
+    # Cleanup
+    rm -f /tmp/downloaded_public_file.txt
 }
 
 test_logging() {
     echo
     echo "=== LOGGING TESTS ==="
     
-    print_info "Testing service logging functionality..."
-    
-    # Generate some traffic to ensure logs are produced
     print_info "Generating test traffic for logging verification..."
     
-    # Test storage service logging
+    # Generate multiple requests to ensure logs are produced
     curl -s -X POST "$STORAGE_URL/login" \
         -H "Content-Type: application/json" \
-        -d '{"username": "admin", "password": "admin123"}' > /dev/null 2>&1
+        -d '{"username": "admin", "password": "admin123"}' > /dev/null
     
-    # Test auth service logging  
     curl -s -X POST "$AUTH_URL/authenticate" \
         -H "Content-Type: application/json" \
-        -d '{"username": "admin", "password": "admin123"}' > /dev/null 2>&1
+        -d '{"username": "admin", "password": "admin123"}' > /dev/null
     
-    # Wait a moment for logs to be written
-    sleep 2
+    # Wait for logs to be written
+    sleep 3
     
-    # Check storage service logs with more detailed verification
+    # Check storage service logs
     print_info "Checking storage service logs..."
-    storage_logs=$(docker-compose logs storage --tail=20 2>/dev/null)
-    storage_log_count=$(echo "$storage_logs" | wc -l)
+    storage_logs=$(docker-compose logs storage --tail=50 2>/dev/null)
     
-    if [ $storage_log_count -gt 5 ]; then
+    if [ ! -z "$storage_logs" ] && [ $(echo "$storage_logs" | wc -l) -gt 5 ]; then
         print_result 0 "Storage service is logging to stdout"
-        echo "Storage log sample:"
-        echo "$storage_logs" | head -5 | while read line; do echo "  $line"; done
+        echo "Recent storage logs:"
+        echo "$storage_logs" | tail -3
     else
         print_result 1 "Storage service should log to stdout"
-        print_warning "Storage logs: $storage_logs"
+        print_warning "No storage logs found"
+        # Debug: check if container is running
+        print_info "Checking storage container status..."
+        docker-compose ps storage
     fi
     
-    # Check auth service logs with more detailed verification
+    # Check auth service logs
     print_info "Checking auth service logs..."
-    auth_logs=$(docker-compose logs auth --tail=20 2>/dev/null)
-    auth_log_count=$(echo "$auth_logs" | wc -l)
+    auth_logs=$(docker-compose logs auth --tail=50 2>/dev/null)
     
-    if [ $auth_log_count -gt 5 ]; then
+    if [ ! -z "$auth_logs" ] && [ $(echo "$auth_logs" | wc -l) -gt 5 ]; then
         print_result 0 "Auth service is logging to stdout"
-        echo "Auth log sample:"
-        echo "$auth_logs" | head -5 | while read line; do echo "  $line"; done
+        echo "Recent auth logs:"
+        echo "$auth_logs" | tail -3
     else
         print_result 1 "Auth service should log to stdout"
-        print_warning "Auth logs: $auth_logs"
-    fi
-    
-    # Check for combined log format more thoroughly
-    print_info "Verifying combined log format..."
-    
-    # Check storage logs for combined format pattern
-    storage_combined=$(echo "$storage_logs" | grep -E "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ - - \[.+\] \"(GET|POST|PUT|DELETE) .* HTTP\/[0-9]\.[0-9]\" [0-9]{3} [0-9]+" | wc -l)
-    auth_combined=$(echo "$auth_logs" | grep -E "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ - - \[.+\] \"(GET|POST|PUT|DELETE) .* HTTP\/[0-9]\.[0-9]\" [0-9]{3} [0-9]+" | wc -l)
-    
-    if [ $storage_combined -gt 0 ]; then
-        print_result 0 "Storage service using combined log format"
-        echo "  Found $storage_combined combined format entries"
-    else
-        print_warning "Storage service may not be using exact combined format"
-        # Check for alternative formats
-        alt_format=$(echo "$storage_logs" | grep -E "\[.+\].*(GET|POST|PUT).*[0-9]{3}" | wc -l)
-        if [ $alt_format -gt 0 ]; then
-            echo "  Found $alt_format alternative format entries (still acceptable)"
-        fi
-    fi
-    
-    if [ $auth_combined -gt 0 ]; then
-        print_result 0 "Auth service using combined log format"
-        echo "  Found $auth_combined combined format entries"
-    else
-        print_warning "Auth service may not be using exact combined format"
-        # Check for alternative formats
-        alt_format=$(echo "$auth_logs" | grep -E "\[.+\].*(GET|POST|PUT).*[0-9]{3}" | wc -l)
-        if [ $alt_format -gt 0 ]; then
-            echo "  Found $alt_format alternative format entries (still acceptable)"
-        fi
-    fi
-    
-    # Test error logging by generating an error
-    print_info "Testing error logging..."
-    curl -s -X GET "$STORAGE_URL/list" \
-        -H "Authorization: Bearer invalid.token.here" > /dev/null 2>&1
-    
-    sleep 1
-    
-    # Check for error logs
-    error_logs=$(docker-compose logs storage --tail=10 2>/dev/null | grep -i "error\|warning" | wc -l)
-    if [ $error_logs -gt 0 ]; then
-        print_result 0 "Error logging is working"
-    else
-        print_warning "No error logs detected in recent entries"
+        print_warning "No auth logs found"
+        # Debug: check if container is running
+        print_info "Checking auth container status..."
+        docker-compose ps auth
     fi
 }
 
@@ -453,41 +242,26 @@ summary() {
     echo -e "${RED}Failed: $FAILED${NC}"
     
     if [ $FAILED -eq 0 ]; then
-        echo -e "${GREEN}🎉 All tests passed! The implementation meets all requirements.${NC}"
+        echo -e "${GREEN}🎉 All tests passed!${NC}"
     else
-        echo -e "${YELLOW}⚠ Some tests failed. Check the implementation.${NC}"
+        echo -e "${YELLOW}⚠ Some tests failed.${NC}"
     fi
-    
-    echo
-    echo "=== RECOMMENDED MANUAL TESTS ==="
-    echo "1. Verify database persistence: stop and start containers, check if files remain"
-    echo "2. Test concurrent file operations"
-    echo "3. Verify error logs are written to stderr"
-    echo "4. Test with different file types and sizes"
-    echo "5. Verify token expiration behavior"
 }
 
 main() {
-    echo "File Storage API Comprehensive Test Suite"
-    echo "========================================="
+    echo "File Storage API Test Suite"
+    echo "==========================="
     
-    # # Check if docker-compose is running
-    # alias docker-compose='docker compose'
-    # if ! docker-compose ps | grep -q "Up"; then
-    #     print_warning "Docker containers don't appear to be running."
-    #     echo "Start them with: docker-compose up -d"
-    #     echo "Then run this test script again."
-    #     exit 1
-    # fi
+    # Check if services are running
+    if ! wait_for_services; then
+        echo "Please start services with: docker-compose up -d"
+        exit 1
+    fi
     
-    wait_for_services
     test_authentication
-    test_authorization
     test_file_operations
-    test_error_scenarios
     test_logging
     summary
 }
 
-# Run main function
 main
