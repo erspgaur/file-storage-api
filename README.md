@@ -17,7 +17,7 @@ A Docker-based file storage system with HTTP API, PostgreSQL backend, and separa
 
 2. **Start services**:
     ```bash
-    docker-compose up --build
+    docker-compose up --build -d
 
 3. **Services will be available at**:
 
