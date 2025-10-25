@@ -2,25 +2,21 @@
 
 ## Docker Compose Compatibility
 
-This validation test feature supports both legacy `docker-compose` and modern `docker compose` commands. The system will automatically detect which command is available on your system.
+    This validation test feature supports both legacy `docker-compose` and modern `docker compose` commands. The system will automatically detect which command is available on your system.
 
 ## Legacy docker-compose (v1)
-
-  docker-compose up -d
-  
-  docker-compose down
-  
-  docker-compose logs
+    The test script will automatically detect and use appropriate commands like these:
+        docker-compose up -d
+        docker-compose down
+        docker-compose logs
 
 
 
 ## Legacy Docker Compose (v2)
-
-docker compose up -d
-
-docker compose down
-
-docker compose logs
+    The test script will automatically detect and use appropriate commands like these:
+        docker compose up -d
+        docker compose down
+        docker compose logs
 
 
 ## Usage Instructions
